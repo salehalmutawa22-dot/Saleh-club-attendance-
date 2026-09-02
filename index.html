@@ -6,6 +6,7 @@
 <title>Attendance Register</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --paper: #FFFCFA;
@@ -122,6 +123,22 @@
     display:flex; align-items:center; justify-content:center; gap: 8px;
     margin-bottom: 20px;
   }
+  .export-bar{
+    display:flex; justify-content:center; margin-bottom: 16px;
+  }
+  .export-btn{
+    display:flex; align-items:center; gap:6px;
+    font-family:'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor:pointer;
+  }
+  .export-btn:hover{ border-color: var(--brass); color: var(--brass-dark); }
   .list-title-row .list-name{
     font-family:'Fraunces', serif;
     font-weight: 600;
@@ -519,6 +536,10 @@
 
   <div class="list-bar" id="listBar"></div>
 
+  <div class="export-bar">
+    <button class="export-btn" id="exportBtn">⬇ Export to Excel</button>
+  </div>
+
   <div class="list-title-row" id="listTitleRow" style="display:none;">
     <span class="list-name" id="activeListName"></span>
     <button class="icon-btn" id="renameListBtn" title="Rename list">rename</button>
@@ -890,6 +911,12 @@ function renderListBar(){
 
   const titleRow = document.getElementById('listTitleRow');
   const activeList = getActiveList();
+  const exportBtn = document.getElementById('exportBtn');
+  if(exportBtn){
+    exportBtn.textContent = state.activeListId === 'ALL'
+      ? '⬇ Export All Lists to Excel'
+      : '⬇ Export "' + (activeList ? activeList.name : '') + '" to Excel';
+  }
   if(state.activeListId !== 'ALL' && activeList){
     titleRow.style.display = 'flex';
     document.getElementById('activeListName').textContent = activeList.name;
@@ -1247,6 +1274,55 @@ async function updateHelperPassword(){
   showToast('Attendance password updated');
 }
 
+// ---------- EXPORT TO EXCEL ----------
+function sheetSafeName(name){
+  return (name || 'List').replace(/[\\\/\?\*\[\]:]/g, '_').substring(0, 31) || 'List';
+}
+function uniqueSheetName(wb, base){
+  let name = base, n = 2;
+  const existing = new Set(wb.SheetNames);
+  while(existing.has(name)){
+    const suffix = ' (' + n + ')';
+    name = base.substring(0, 31 - suffix.length) + suffix;
+    n++;
+  }
+  return name;
+}
+function buildSheetRows(l){
+  const sortedSessions = [...l.sessions].sort((a,b)=> a.date < b.date ? -1 : 1);
+  const header = ['Name', ...sortedSessions.map(s=>s.date), 'Attendance %'];
+  const rows = l.members.map(m=>{
+    let present = 0, counted = 0;
+    const cells = sortedSessions.map(s=>{
+      const st = s.records[m.id];
+      if(st){ counted++; if(st==='present') present++; }
+      return st ? (st==='present' ? 'Present' : st==='absent' ? 'Absent' : 'Excused') : '';
+    });
+    const pct = counted > 0 ? Math.round((present/counted)*100) + '%' : '';
+    return [m.name, ...cells, pct];
+  });
+  return [header, ...rows];
+}
+function exportToExcel(){
+  if(typeof XLSX === 'undefined'){
+    showToast('Export failed to load — check your connection');
+    return;
+  }
+  const listsToExport = state.activeListId === 'ALL' ? state.lists : (getActiveList() ? [getActiveList()] : []);
+  if(listsToExport.length === 0){
+    showToast('Nothing to export yet');
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  listsToExport.forEach(l=>{
+    const ws = XLSX.utils.aoa_to_sheet(buildSheetRows(l));
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, sheetSafeName(l.name)));
+  });
+  const label = state.activeListId === 'ALL' ? 'All-Lists' : sheetSafeName(getActiveList().name);
+  XLSX.writeFile(wb, label + '-attendance-' + todayStr() + '.xlsx');
+  showToast('Exported to Excel');
+}
+
 // ---------- TABS ----------
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -1291,6 +1367,7 @@ async function init(){
   document.getElementById('adminLockBtn').addEventListener('click', lockNow);
   document.getElementById('renameListBtn').addEventListener('click', renameActiveList);
   document.getElementById('deleteListBtn').addEventListener('click', deleteActiveList);
+  document.getElementById('exportBtn').addEventListener('click', exportToExcel);
   document.getElementById('settingsAdminSave').addEventListener('click', updateAdminPassword);
   document.getElementById('settingsHelperSave').addEventListener('click', updateHelperPassword);
   document.getElementById('settingsLockBtn').addEventListener('click', lockNow);
