@@ -1057,12 +1057,25 @@ function renderMembersTab(){
         <input type="text" id="newMemberName" placeholder="Full name" />
         <button class="btn" id="addMemberBtn">Add</button>
       </div>
+      <button class="icon-btn" id="toggleBulkAdd" style="margin-bottom:10px;">+ Paste a whole list at once</button>
+      <div id="bulkAddPanel" style="display:none; margin-bottom:14px;">
+        <textarea id="bulkNamesInput" rows="6" placeholder="Paste names here — one per line, or separated by commas" style="width:100%; font-family:'Inter',sans-serif; font-size:14px; padding:10px 11px; border:1px solid var(--line-strong); border-radius:8px; background:var(--paper); color:var(--ink); resize:vertical;"></textarea>
+        <div class="section-sub" style="margin-top:6px;">Duplicate names already on this list will be skipped automatically.</div>
+        <button class="btn" id="bulkAddBtn" style="margin-top:8px;">Add All Names</button>
+      </div>
       <ul class="member-manage-list" id="memberManageList"></ul>
     </div>
   `;
   renderMembers();
   document.getElementById('addMemberBtn').addEventListener('click', addMember);
   document.getElementById('newMemberName').addEventListener('keydown', (e)=>{ if(e.key==='Enter') addMember(); });
+  document.getElementById('toggleBulkAdd').addEventListener('click', ()=>{
+    const panel = document.getElementById('bulkAddPanel');
+    const isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : 'block';
+    document.getElementById('toggleBulkAdd').textContent = isOpen ? '+ Paste a whole list at once' : '– Hide paste box';
+  });
+  document.getElementById('bulkAddBtn').addEventListener('click', bulkAddMembers);
 }
 
 function renderMembers(){
@@ -1102,6 +1115,33 @@ async function addMember(){
   await save();
   renderMembers();
   showToast('Added ' + name);
+}
+
+async function bulkAddMembers(){
+  const l = getActiveList();
+  if(!l) return;
+  const textarea = document.getElementById('bulkNamesInput');
+  const raw = textarea.value;
+  if(!raw || !raw.trim()){ showToast('Paste some names first'); return; }
+
+  // Split on newlines and commas, trim, drop empties
+  const candidates = raw.split(/[\n,]/).map(s=>s.trim()).filter(s=>s.length > 0);
+  if(candidates.length === 0){ showToast('No names found'); return; }
+
+  const existingLower = new Set(l.members.map(m=>m.name.trim().toLowerCase()));
+  let added = 0, skipped = 0;
+  candidates.forEach(name=>{
+    const key = name.toLowerCase();
+    if(existingLower.has(key)){ skipped++; return; }
+    l.members.push({ id: uid(), name });
+    existingLower.add(key);
+    added++;
+  });
+
+  await save();
+  textarea.value = '';
+  renderMembers();
+  showToast(added + ' added' + (skipped > 0 ? ', ' + skipped + ' duplicate' + (skipped===1?'':'s') + ' skipped' : ''));
 }
 
 // ---------- HISTORY (admin) ----------
